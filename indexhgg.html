@@ -465,7 +465,6 @@
             <li id="nav-add-fees"><a data-view="add-fees-view"><i class="fas fa-file-invoice-dollar"></i><span class="menu-text">Add Fees</span></a></li>
             <li id="nav-add-result"><a data-view="add-results-view"><i class="fas fa-award"></i><span class="menu-text">Add Result</span></a></li>
             <li id="nav-tools"><a data-view="tools-view"><i class="fas fa-tools"></i><span class="menu-text">Tools Hub</span></a></li>
-            <li id="nav-all-data"><a data-view="complete-data-view"><i class="fas fa-table"></i><span class="menu-text">All Data</span></a></li>
             <li class="sidebar-divider" id="generator-divider" style="display: none;"></li>
             <!-- Dynamic generators will be appended here -->
             <li class="sidebar-divider" id="sheet-divider" style="display: none;"></li>
@@ -482,7 +481,6 @@
                  <button id="download-pdf-btn" style="display: none;" title="Download Current View as PDF">
                      <i class="fas fa-file-pdf"></i> PDF
                  </button>
-                 <button id="view-all-data-btn" title="View All Spreadsheet Data" style="display: none;"><i class="fas fa-table"></i> All Data</button>
                 <span id="user-greeting"></span>
                  <button class="logout-button" id="logout-btn" title="Logout"><i class="fas fa-sign-out-alt"></i> Logout</button>
              </div>
@@ -623,16 +621,6 @@
                 </div>
             </section>
 
-            <!-- Complete Data View -->
-            <section id="complete-data-view" class="view-section">
-                 <div class="view-header">
-                     <div class="title-text"><i class="fas fa-table"></i> Complete Data View</div>
-                 </div>
-                 <div class="section-content" id="complete-data-content">
-                    <p class="message info">Click the "All Data" menu item to load all data.</p>
-                 </div>
-            </section>
-
             <!-- Generic Sheet View -->
             <section id="generic-sheet-view" class="view-section">
                  <div class="view-header">
@@ -717,7 +705,6 @@
          userGreeting: document.getElementById('user-greeting'), logoutBtn: document.getElementById('logout-btn'), 
          mainContent: document.getElementById('main-content'), viewSections: document.querySelectorAll('.view-section'), 
          downloadPdfBtn: document.getElementById('download-pdf-btn'),
-         viewAllDataBtn: document.getElementById('view-all-data-btn'),
 
          dashboardView: document.getElementById('dashboard-view'), dashboardMessage: document.getElementById('dashboard-message'),
          dbTotalStudents: document.getElementById('db-total-students'), dbTotalStaff: document.getElementById('db-total-staff'),
@@ -730,8 +717,6 @@
          duesPerClassChartEl: document.getElementById('duesPerClassChart'),
          attendancePerClassChartEl: document.getElementById('attendancePerClassChart'),
 
-         completeDataView: document.getElementById('complete-data-view'),
-         completeDataContent: document.getElementById('complete-data-content'),
          studentListView: document.getElementById('student-list-view'), 
          studentListMessage: document.getElementById('student-list-message'),
          studentListMainContent: document.getElementById('student-list-main-content'),
@@ -808,9 +793,7 @@
     // --- API Call Function ---
     async function callBackendApi(action, payload = {}) {
         showLoading();
-        
-        // The payload must include the action for the backend to route it.
-        payload.action = action;
+        const endpoint = `/api/${action}`;
 
         if (action !== 'login') {
             if (schoolSpreadsheetId) payload.spreadsheetId = schoolSpreadsheetId;
@@ -818,33 +801,23 @@
         }
 
         try {
-            // A more helpful error message for the most common issue.
-            if (SCRIPT_URL.includes('PASTE_YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE')) {
-                const errorMsg = "Configuration Error: The Google Apps Script URL is not set. Please edit index.html and set the SCRIPT_URL variable.";
-                hideLoading();
-                showMessage(D.loginMessage, errorMsg, 'error', false);
-                return { success: false, error: errorMsg };
-            }
-
-            // All requests go to the single Google Apps Script URL.
-            const res = await fetch(SCRIPT_URL, {
+            const res = await fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
 
-            // Since Apps Script doPost can return different content types, we parse as JSON.
             const result = await res.json();
             hideLoading();
             
             // Check for authentication specific message from backend
-            if (result.success === false && result.message && (result.message.toLowerCase().includes('token') || result.message.toLowerCase().includes('session'))) {
+            if (result.success === false && result.message && result.message.toLowerCase().includes('token')) {
                 showMessage(D.loginMessage, `Session expired or invalid. Please log in again. (${result.message})`, 'error');
                 showLoginView();
                 return { success: false, error: "Authentication failed." };
             }
             if (!res.ok) {
-                 throw new Error(result.error || result.message || `HTTP error ${res.status}`);
+                 throw new Error(result.error || result.message || `HTTP ${res.status}`);
             }
 
             return result;
@@ -867,7 +840,7 @@
                  showMessage(msgEl || D.loginMessage, `Connection or session error. Please log in again.`, 'error');
                  showLoginView(); 
              } else {
-                 showMessage(msgEl || D.loginMessage, `Network/Server Error: ${err.message}. Check browser console and Apps Script logs for details.`, 'error');
+                 showMessage(msgEl || D.loginMessage, `Network/Server Error: ${err.message}`, 'error');
              }
 
             return { success: false, error: err.message };
@@ -890,45 +863,7 @@
         switchView('dashboard-view', 'Dashboard', 'nav-dashboard');
     }
     function showPremiumView() { D.loginSection.style.display='none'; D.premiumInfoSection.style.display='block'; }
-    D.loginForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        hideMessage(D.loginMessage);
-        const m = D.mobileInput.value.trim();
-        const p = D.passwordInput.value.trim();
-        if (!m || !p) {
-            showMessage(D.loginMessage, 'Mobile and password are required.', 'warning');
-            return;
-        }
-        D.loginButton.classList.add('processing');
-        D.loginButton.disabled = true;
-
-        try {
-            const r = await callBackendApi('login', { mobile: m, password: p });
-            
-            D.loginButton.classList.remove('processing');
-            D.loginButton.disabled = false;
-
-            if (r?.success && r.spreadsheetId && r.token) {
-                schoolSpreadsheetId = r.spreadsheetId;
-                authToken = r.token;
-                localStorage.setItem('schoolSpreadsheetId', schoolSpreadsheetId);
-                localStorage.setItem('authToken', authToken);
-                localStorage.setItem('userMobile', m);
-                await showAppView();
-            } else if (r?.reason === 'not_premium') {
-                showPremiumView();
-            } else {
-                showMessage(D.loginMessage, r?.message || r?.error || 'Login failed. Check credentials.', 'error');
-                localStorage.clear();
-            }
-        } catch (err) {
-            // callBackendApi already handles showing the error message
-            D.loginButton.classList.remove('processing');
-            D.loginButton.disabled = false;
-            console.error("Login processing error:", err);
-            localStorage.clear();
-        }
-    });
+    D.loginForm.addEventListener('submit', async (e) => { e.preventDefault(); hideMessage(D.loginMessage); const m = D.mobileInput.value.trim(), p = D.passwordInput.value.trim(); if (!m || !p) { showMessage(D.loginMessage, 'Mobile and password are required.', 'warning'); return; } D.loginButton.classList.add('processing'); D.loginButton.disabled = true; try { const res = await fetch('/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mobile: m, password: p }) }); const r = await res.json(); D.loginButton.classList.remove('processing'); D.loginButton.disabled = false; if (res.ok && r?.success && r.spreadsheetId && r.token) { schoolSpreadsheetId = r.spreadsheetId; authToken = r.token; localStorage.setItem('schoolSpreadsheetId', schoolSpreadsheetId); localStorage.setItem('authToken', authToken); localStorage.setItem('userMobile', m); await showAppView(); } else if (res.ok && r?.reason === 'not_premium') { showPremiumView(); } else { showMessage(D.loginMessage, r?.message || r?.error || 'Login failed. Check credentials.', 'error'); localStorage.clear(); } } catch (err) { D.loginButton.classList.remove('processing'); D.loginButton.disabled = false; console.error("Login fetch error:", err); showMessage(D.loginMessage, `Login Error: ${err.message}`, 'error'); localStorage.clear(); } });
     D.premiumBackBtn.addEventListener('click', () => { D.premiumInfoSection.style.display='none'; D.loginSection.style.display='block'; D.loginForm.reset(); hideMessage(D.loginMessage); });
     D.logoutBtn.addEventListener('click', () => { if(confirm("Are you sure you want to logout?")) showLoginView(); });
     function toggleSidebar() { D.sidebar.classList.toggle('collapsed'); }
@@ -950,7 +885,6 @@
             else if (viewId === 'add-fees-view') prepareAddFeesForm();
             else if (viewId === 'staff-list-view') loadStaffList();
             else if (viewId === 'add-results-view') { if(D.resultClassSelect.options.length <=1 && Object.keys(classMapping).length > 0) populateClassDropdowns(); showStep(1); }
-            else if (viewId === 'complete-data-view') { D.viewAllDataBtn.click(); }
         } else console.error(`View "${viewId}" not found.`);
         updatePdfButtonVisibility(viewId);
         if (window.innerWidth <= 768 && D.sidebar.classList.contains('open')) D.sidebar.classList.remove('open');
@@ -1278,98 +1212,6 @@
     D.downloadPdfBtn.addEventListener('click', downloadCurrentViewAsPDF);
     function downloadCurrentViewAsPDF() { let tableElement, headers = [], data = [], title = 'Data Export', orientation = 'p'; if (currentView === 'student-list-view') { const currentStudentTable = document.getElementById('current-class-student-table-body'); if(!currentStudentTable || currentClassStudents.length === 0) { showMessage(D.studentListMessage, "No data to export.", "warning"); return;} tableElement = currentStudentTable.closest('table'); const displayedClassName = D.studentListMainContent.querySelector('h3')?.textContent.replace(' - Student List','') || "Student List"; title = displayedClassName; headers = Array.from(tableElement.querySelectorAll('thead th')).map(th => th.textContent.trim()).slice(0, -1); data = currentClassStudents.map(s => [ s.PhotoURL ? 'Photo' : '-', s.RollNumber || '-', s.Name || '-', s.Mobile || '-', s.FatherName || '-' ]); if (headers.length > 4) orientation = 'l'; } else if (currentView === 'generic-sheet-view' && currentGenericSheetName && currentGenericData.length > 0) { tableElement = D.genericDataTable; title = `${currentGenericSheetName} Data`; headers = currentGenericHeaders; data = currentGenericData.map(rowItem => currentGenericHeaders.map((h, idx) => rowItem.values[idx] ?? '')); if (headers.length > 6) orientation = 'l'; } else { showMessage(D.dashboardMessage || D.mainHeaderTitle, "PDF not available.", 'warning'); return; } if (!tableElement || data.length === 0) { showMessage(D.mainHeaderTitle, "No data to download.", 'warning'); return; } try { showLoading(); const doc = new jsPDF({ orientation: orientation }); doc.setFontSize(16); doc.text(title, 14, 16); doc.setFontSize(8); doc.setTextColor(100); doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 20); jsPDF.autoTable(doc, { head: [headers], body: data, startY: 25, theme: 'grid', styles: { fontSize: orientation === 'l' ? 7 : 8, cellPadding: 1.5, overflow: 'linebreak' }, headStyles: { fillColor: [52, 152, 219], textColor: 255, fontStyle: 'bold' }, didDrawPage: function (data) { doc.setFontSize(8); doc.setTextColor(150); const pageCount=doc.internal.getNumberOfPages(); doc.text('Page '+doc.internal.getCurrentPageInfo().pageNumber+' of '+pageCount,data.settings.margin.left,doc.internal.pageSize.height-10); } }); doc.save(`${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_${new Date().toISOString().slice(0,10)}.pdf`); hideLoading(); } catch (error) { console.error("Error PDF:", error); hideLoading(); showMessage(document.querySelector('.header-actions'), `PDF Error: ${error.message}`, 'error'); } }
 
-    function displayAllData(allData) {
-            const container = D.completeDataContent;
-            container.innerHTML = '';
-            if (!allData || Object.keys(allData).length === 0) {
-                container.innerHTML = '<p class="message warning">No data received or all sheets are empty.</p>';
-                return;
-            }
-
-            const frag = document.createDocumentFragment();
-            for (const sheetName in allData) {
-                const sheetData = allData[sheetName];
-                
-                const sheetContainer = document.createElement('div');
-                sheetContainer.style.marginBottom = '40px';
-
-                const title = document.createElement('h4');
-                title.innerHTML = `<i class="far fa-file-excel"></i> ${sanitizeHTML(sheetName)}`;
-                title.style.fontSize = '1.4rem';
-                title.style.color = 'var(--primary-color)';
-                title.style.marginBottom = '15px';
-                title.style.paddingBottom = '10px';
-                title.style.borderBottom = '2px solid #eee';
-                sheetContainer.appendChild(title);
-
-                if (sheetData.error) {
-                    sheetContainer.innerHTML += `<p class="message error">Could not load this sheet: ${sanitizeHTML(sheetData.error)}</p>`;
-                    frag.appendChild(sheetContainer);
-                    continue;
-                }
-
-                if (!Array.isArray(sheetData) || sheetData.length === 0) {
-                    sheetContainer.innerHTML += '<p class="message info">This sheet is empty or contains only headers.</p>';
-                    frag.appendChild(sheetContainer);
-                    continue;
-                }
-
-                const tableContainer = document.createElement('div');
-                tableContainer.className = 'data-table-container';
-                tableContainer.style.maxHeight = '60vh';
-
-                const table = document.createElement('table');
-                table.className = 'data-table';
-
-                const thead = document.createElement('thead');
-                const headerRow = document.createElement('tr');
-                const headers = Object.keys(sheetData[0]);
-                headers.forEach(headerText => {
-                    const th = document.createElement('th');
-                    th.textContent = sanitizeHTML(headerText);
-                    headerRow.appendChild(th);
-                });
-                thead.appendChild(headerRow);
-                table.appendChild(thead);
-
-                const tbody = document.createElement('tbody');
-                sheetData.forEach(rowObject => {
-                    const tr = document.createElement('tr');
-                    headers.forEach(header => {
-                        const td = document.createElement('td');
-                        td.textContent = sanitizeHTML(rowObject[header]);
-                        tr.appendChild(td);
-                    });
-                    tbody.appendChild(tr);
-                });
-                table.appendChild(tbody);
-                tableContainer.appendChild(table);
-                sheetContainer.appendChild(tableContainer);
-                frag.appendChild(sheetContainer);
-            }
-            container.appendChild(frag);
-        }
-
-        D.viewAllDataBtn.addEventListener('click', async () => {
-            if (!confirm("This will fetch all data from every sheet and display it. This may take a moment. Continue?")) {
-                if (currentView === 'complete-data-view') {
-                    // If they cancel, don't show a blank screen, show the placeholder text.
-                    D.completeDataContent.innerHTML = '<p class="message info">Click the "All Data" menu item to load all data.</p>';
-                }
-                return;
-            }
-            // Switch view immediately to give user feedback
-            switchView('complete-data-view', 'Complete Data View', 'nav-all-data');
-            D.completeDataContent.innerHTML = '<p class="message info">Fetching all data from the spreadsheet... This may take a moment.</p>';
-
-            const result = await callBackendApi('completedata_fatch', {});
-            if (result?.success && result.data) {
-                displayAllData(result.data);
-            } else {
-                D.completeDataContent.innerHTML = `<p class="message error">${result?.error || 'Failed to fetch complete data.'}</p>`;
-            }
-        });
-
     // --- Event Listeners & Initial Load ---
     document.querySelectorAll('.close-btn, .cancel-btn[data-modal-id]').forEach(btn => { btn.addEventListener('click', () => closeModal(btn.dataset.modalId || btn.closest('.modal').id)); });
     window.addEventListener('click', (e)=>{ if(e.target.classList.contains('modal')) closeModal(e.target.id); });
@@ -1398,5 +1240,3 @@
 
 </body>
 </html>
-
-
